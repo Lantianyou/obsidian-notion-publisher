@@ -78,17 +78,37 @@ it("preserves nested tasks, tables and image order", async () => {
   expect(blocks[1]?.type).toBe("table");
   expect(blocks.slice(2).map((block) => block.type)).toEqual(["paragraph", "image", "paragraph"]);
 });
-it("rejects images inside table cells before uploading", async () => {
-  let uploads = 0;
-  await expect(
-    convert(
-      "| Image |\n| - |\n| ![[pic.png]] |",
-      async () => image,
-      async () => {
-        uploads++;
-        return id;
-      },
-    ),
-  ).rejects.toThrow("表格");
-  expect(uploads).toBe(0);
+it("publishes image tables as labelled blocks, including escaped wiki width suffixes", async () => {
+  const resolved: string[] = [];
+  const blocks = await convert(
+    "| Pipette | Tips |\n| - | - |\n| ![[pipette.png\\|220]] | ![tips](tips.png) |\n| text cell | ![[second.png]] |",
+    async (link) => {
+      resolved.push(link);
+      return { ...image, path: link };
+    },
+    async () => id,
+  );
+  expect(resolved).toEqual(["pipette.png", "tips.png", "second.png"]);
+  expect(blocks.filter((block) => block.type === "image")).toHaveLength(3);
+  expect(JSON.stringify(blocks)).toContain("Pipette");
+  expect(JSON.stringify(blocks)).toContain("Tips");
+  expect(JSON.stringify(blocks)).toContain("text cell");
+  expect(JSON.stringify(blocks)).not.toContain("obsidian-upload.invalid");
+  expect(blocks.some((block) => block.type === "table")).toBe(false);
+});
+
+it("recognizes wiki image filenames before GFM email autolinks and emphasis", async () => {
+  const resolved: string[] = [];
+  const blocks = await convert(
+    "![[CleanShot 2026-11-03 at 09.47.53@2x.png]]\n\n![[image_a_b.png]]\n\n`![[code@2x.png]]`\n\n```md\n![[fenced@2x.png]]\n```",
+    async (link) => {
+      resolved.push(link);
+      return { ...image, path: link };
+    },
+    async () => id,
+  );
+  expect(resolved).toEqual(["CleanShot 2026-11-03 at 09.47.53@2x.png", "image_a_b.png"]);
+  expect(blocks.filter((block) => block.type === "image")).toHaveLength(2);
+  expect(JSON.stringify(blocks)).toContain("![[code@2x.png]]");
+  expect(JSON.stringify(blocks)).toContain("![[fenced@2x.png]]");
 });

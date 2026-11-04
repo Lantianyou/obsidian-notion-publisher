@@ -21,7 +21,7 @@ The plugin opens the resulting Notion page. Running the command again updates th
 
 Headings, rich text, lists, tasks, quotes, code, GFM tables, dividers, and images are converted to native Notion blocks by walking a unified/remark Markdown AST.
 
-Local images support Obsidian embeds (`![[image.png]]`, including aliases and width suffixes), Markdown images, relative paths, and reference-style images. Images inside table cells or inline formatting are rejected with an error. The resolver uses Obsidian's link resolution relative to the source note. Repeated references to one file upload once per publish. HTTPS and HTTP images retain their external URL.
+Local images support Obsidian embeds (`![[image.png]]`, including aliases and width suffixes), Markdown images, relative paths, and reference-style images. Image tables become labelled blocks in row order because Notion table cells accept rich text only. Each cell retains its column heading and its images. Text-only tables remain native Notion tables. Images nested inside inline formatting are rejected with an error. The resolver uses Obsidian's link resolution relative to the source note. Repeated references to one file upload once per publish. HTTPS and HTTP images retain their external URL.
 
 Each local image must be at most 5 MiB. PNG, JPEG, GIF, WebP, SVG, ICO, and HEIC MIME types are recognized; Notion may reject a format depending on its file policies. Unsupported files fail the publish rather than becoming missing images.
 

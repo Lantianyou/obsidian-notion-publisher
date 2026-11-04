@@ -1,7 +1,6 @@
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
-import { findAndReplace } from "mdast-util-find-and-replace";
 import { visit } from "unist-util-visit";
 import type { RootContent, PhrasingContent, Root } from "mdast";
 import type { Block } from "./notion";
@@ -30,14 +29,8 @@ export async function convert(
   upload: (image: Attachment) => Promise<string>,
 ): Promise<Block[]> {
   const processor = unified().use(remarkParse).use(remarkGfm);
-  const tree = processor.parse(markdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, ""));
-  findAndReplace(tree, [
-    /!\[\[([^\]\n]+)\]\]/g,
-    (_match, target: string) => {
-      const [url = "", alt = ""] = target.split("|");
-      return { type: "image", url, alt: /^\d+(x\d+)?$/.test(alt) ? "" : alt };
-    },
-  ]);
+  const body = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+  const tree = processor.parse(normalizeWikiEmbeds(body));
   const definitions = new Map<string, string>();
   visit(tree, "definition", (node) => {
     definitions.set(node.identifier.toLowerCase(), node.url);
@@ -50,8 +43,8 @@ export async function convert(
   });
   const images: { url: string }[] = [];
   visit(tree, "image", (node, _index, parent) => {
-    if (parent?.type !== "paragraph" && parent?.type !== "heading")
-      throw new Error("请将图片单独放在一个段落中；暂不支持表格单元格或行内格式中的图片。");
+    if (parent?.type !== "paragraph" && parent?.type !== "heading" && parent?.type !== "tableCell")
+      throw new Error("暂不支持粗体、链接等行内格式内嵌套图片；请将图片放在段落或表格单元格中。");
     images.push(node);
   });
   const cache = new Map<string, string>();
@@ -78,6 +71,29 @@ export async function convert(
     node.url = placeholder;
   }
   return render(tree, uploads);
+}
+
+function normalizeWikiEmbeds(markdown: string): string {
+  const tree = unified().use(remarkParse).parse(markdown);
+  const excluded: { start: number; end: number }[] = [];
+  visit(tree, (node) => {
+    if (node.type !== "code" && node.type !== "inlineCode" && node.type !== "html") return;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start !== undefined && end !== undefined) excluded.push({ start, end });
+  });
+  return markdown.replace(
+    /!\[\[([^\]\n]+)\]\]/g,
+    (match: string, target: string, offset: number) => {
+      if (excluded.some((range) => offset >= range.start && offset < range.end)) return match;
+      const [path = "", alias = ""] = target.replaceAll("\\|", "|").split("|");
+      const alt = (/^\d+(x\d+)?$/.test(alias) ? "" : alias).replace(/[\\[\]]/g, "\\$&");
+      const url = /^https?:\/\//i.test(path)
+        ? encodeURI(path)
+        : encodeURIComponent(path).replaceAll("%2F", "/");
+      return `![${alt}](<${url}>)`;
+    },
+  );
 }
 
 type RichText = {
@@ -233,6 +249,25 @@ function render(tree: Root, uploads: Map<string, string>): Block[] {
             };
           });
         case "table": {
+          let containsImages = false;
+          visit(node, "image", () => {
+            containsImages = true;
+          });
+          if (containsImages) {
+            const header = node.children[0];
+            if (!header) return [];
+            // Notion table cells accept rich text only. Keep column labels with each cell.
+            const rows = node.children.slice(1);
+            return rows.flatMap((row) =>
+              row.children.flatMap((cell, column) => [
+                richBlock(
+                  "paragraph",
+                  inline(header.children[column]?.children ?? [], { bold: true }),
+                ),
+                ...paragraph(cell.children),
+              ]),
+            );
+          }
           const width = Math.max(1, ...node.children.map((row) => row.children.length));
           if (width > 100) throw new Error("表格超过 Notion 的 100 列上限。");
           return [
