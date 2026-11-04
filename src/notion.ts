@@ -108,9 +108,9 @@ export class Notion {
 
   async archive(id: string) {
     const current = z
-      .object({ archived: z.boolean() })
+      .object({ in_trash: z.boolean() })
       .parse(await this.request("GET", `/blocks/${id}`));
-    if (!current.archived) await this.request("DELETE", `/blocks/${id}`);
+    if (!current.in_trash) await this.request("DELETE", `/blocks/${id}`);
   }
 
   async upload(name: string, mime: string, data: ArrayBuffer): Promise<string> {

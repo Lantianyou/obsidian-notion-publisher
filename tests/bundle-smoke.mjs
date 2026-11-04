@@ -85,7 +85,7 @@ const obsidian = {
         has_more: false,
         next_cursor: null,
       };
-    else if (request.method === "GET") body = { archived: false };
+    else if (request.method === "GET") body = { in_trash: false };
     return { status: 200, headers: {}, text: JSON.stringify(body) };
   },
 };

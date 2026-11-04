@@ -2,7 +2,7 @@
 
 Publish one Obsidian note and its local images directly to Notion. No image hosting service or server is required.
 
-> Early development. Automated checks run locally; an authenticated Obsidian → Notion publish has not yet been verified.
+> Early development. Verified on 2026-11-04 in Obsidian 1.15.0 against a live Notion workspace: image upload and byte-for-byte download, same-page updates after a note rename, cleanup recovery, preservation of content outside the managed body, and missing-image rejection.
 
 ## Install and publish a note
 
@@ -55,8 +55,24 @@ The stack is TypeScript 7 and Vite+ for build and Vitest. The output is a Common
 
 `src/markdown.ts` resolves Markdown and image embeds. `src/notion.ts` handles Notion HTTP and uploads. `src/publish.ts` owns staged updates and recovery. `src/main.ts` integrates Obsidian commands and settings.
 
-Tests cover real Markdown conversion, binary multipart parsing, rate limits, batching, and preservation of the previous generation after a failed write. A separate smoke check loads the actual CommonJS bundle in a DOM environment and exercises the Obsidian command through two publishes. Obsidian and HTTP boundaries are simulated; these checks do not prove access to a live Notion workspace.
+Tests cover real Markdown conversion, binary multipart parsing, rate limits, batching, and preservation of the previous generation after a failed write. A separate smoke check loads the actual CommonJS bundle in a DOM environment and exercises the Obsidian command through two publishes. Obsidian and HTTP boundaries in CI are simulated. The opt-in live check below verifies a real workspace separately.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Verify against a live workspace
+
+Use a dedicated test note and parent page. Copy `tests/fixtures/publish.md` and `tests/fixtures/测试图片.png` into one folder in your vault, configure the plugin, and publish the note once. The following script reads the token from the local plugin settings without printing it. It adds a test paragraph outside the managed body to check preservation.
+
+```sh
+node tests/live-notion.mjs first /path/to/vault/.obsidian/plugins/notion-note-publisher/data.json /path/to/vault/test/测试图片.png
+```
+
+Rename the test note, append `SECOND_PUBLISH_VERIFIED` to its body, and publish it again. Run the second check with the same paths:
+
+```sh
+node tests/live-notion.mjs second /path/to/vault/.obsidian/plugins/notion-note-publisher/data.json /path/to/vault/test/测试图片.png
+```
+
+This check expects an installation with one published test note. It downloads both image blocks, compares their bytes to the vault image, checks representative Markdown blocks, and confirms that the old container is trashed while the external paragraph survives. Reports and recovery identifiers are stored in ignored `.local-live/`, outside the build output.
