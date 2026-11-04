@@ -1,0 +1,9 @@
+{
+  "id": "notion-note-publisher",
+  "name": "Notion Note Publisher",
+  "version": "0.1.0",
+  "minAppVersion": "1.8.0",
+  "description": "Publish a note and its local images directly to Notion.",
+  "author": "Lantianyou",
+  "isDesktopOnly": false
+}

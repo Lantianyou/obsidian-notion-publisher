@@ -1,0 +1,22 @@
+name: Release
+on:
+  push:
+    tags: ["*.*.*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Match tag to manifest
+        run: node --input-type=module -e 'import fs from "node:fs"; const m=JSON.parse(fs.readFileSync("manifest.json")); if (m.version !== process.env.GITHUB_REF_NAME) process.exit(1)'
+      - run: gh release create "$GITHUB_REF_NAME" dist/main.js manifest.json --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
