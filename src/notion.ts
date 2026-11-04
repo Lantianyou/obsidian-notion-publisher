@@ -90,27 +90,9 @@ export class Notion {
     );
   }
 
-  async rename(id: string, title: string) {
-    await this.request("PATCH", `/pages/${id}`, {
-      properties: {
-        title: {
-          type: "title",
-          title: [{ type: "text", text: { content: title.slice(0, 2000) } }],
-        },
-      },
-    });
-  }
-
   async append(id: string, children: Block[]) {
     return listSchema.parse(await this.request("PATCH", `/blocks/${id}/children`, { children }))
       .results;
-  }
-
-  async archive(id: string) {
-    const current = z
-      .object({ in_trash: z.boolean() })
-      .parse(await this.request("GET", `/blocks/${id}`));
-    if (!current.in_trash) await this.request("DELETE", `/blocks/${id}`);
   }
 
   async upload(name: string, mime: string, data: ArrayBuffer): Promise<string> {

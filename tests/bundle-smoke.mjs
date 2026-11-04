@@ -123,14 +123,17 @@ for (let i = 0; i < 2; i++) {
     }),
   ]);
 }
-assert.equal(requests.filter((r) => r.url.endsWith("/pages") && r.method === "POST").length, 1);
-assert.equal(requests.filter((r) => r.method === "DELETE").length, 1);
+assert.equal(requests.filter((r) => r.url.endsWith("/pages") && r.method === "POST").length, 2);
+assert.equal(requests.filter((r) => r.method === "DELETE").length, 0);
 assert.equal(Object.keys(saved.notes).length, 1);
+assert.ok(
+  !requests.some((r) => typeof r.body === "string" && r.body.includes("笔记正文 · Obsidian")),
+);
 assert.equal(typeof frontmatter["notion-publisher-id"], "string");
 assert.ok(requests.some((r) => typeof r.body === "string" && r.body.includes("file_upload")));
 assert.ok(
   !requests.some((r) => typeof r.body === "string" && r.body.includes("obsidian-upload.invalid")),
 );
 console.info(
-  "Built-plugin smoke check passed: command → image upload → page create → update → old-container cleanup.",
+  "Built-plugin smoke check passed: command → image upload → two independent pages with direct content.",
 );

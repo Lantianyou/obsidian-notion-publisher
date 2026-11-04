@@ -1,104 +1,81 @@
 import { expect, it } from "vite-plus/test";
-import { publish, type Mapping, type PublisherApi } from "../src/publish";
-const page = "11111111-1111-4111-8111-111111111111";
-const old = "22222222-2222-4222-8222-222222222222";
-const next = "33333333-3333-4333-8333-333333333333";
-const initial: Mapping = {
-  page,
-  url: "https://notion.so/test",
-  active: old,
-  staging: null,
-  retired: [],
-};
+import { publish, mappingSchema, type Mapping, type PublisherApi } from "../src/publish";
+const parent = "11111111-1111-4111-8111-111111111111";
 function fixture(fail = false) {
-  const events: string[] = [];
+  const requests: { id: string; children: unknown[] }[] = [];
+  const pages: string[] = [];
   const states: Mapping[] = [];
   const api: PublisherApi = {
     createPage: async () => {
-      throw new Error("must reuse existing page");
-    },
-    rename: async () => {
-      events.push("rename");
-    },
-    archive: async (id) => {
-      events.push(`archive:${id}`);
+      const id = crypto.randomUUID();
+      pages.push(id);
+      return { id, url: `https://notion.so/${id}` };
     },
     append: async (id, children) => {
-      events.push(`append:${id}:${children.length}`);
-      if (id === next && fail) throw new Error("write failed");
-      return children.map(() => ({ id: next }));
+      requests.push({ id, children });
+      if (fail) throw new Error("write failed");
+      return children.map(() => ({ id: crypto.randomUUID() }));
     },
   };
   return {
     api,
-    events,
+    requests,
+    pages,
     states,
     save: async (state: Mapping) => {
       states.push(structuredClone(state));
-      events.push(`save:${state.active}`);
     },
   };
 }
-it("writes the full new generation before retiring the old one", async () => {
+it("publishes directly into a fresh page every time, batching long documents", async () => {
   const f = fixture();
-  const result = await publish({
-    ...f,
-    parent: page,
-    title: "Note",
-    blocks: Array.from({ length: 101 }, () => ({ type: "paragraph" })),
-    mapping: initial,
-  });
-  expect(f.events.filter((e) => e.startsWith(`append:${next}`))).toEqual([
-    `append:${next}:50`,
-    `append:${next}:50`,
-    `append:${next}:1`,
-  ]);
-  expect(f.events.indexOf(`archive:${old}`)).toBeGreaterThan(f.events.indexOf(`save:${next}`));
-  expect(result.active).toBe(next);
-  expect(result.retired).toEqual([]);
+  const blocks = Array.from({ length: 101 }, () => ({
+    type: "paragraph",
+    paragraph: { rich_text: [] },
+  }));
+  const first = await publish({ ...f, parent, title: "Note", blocks });
+  const second = await publish({ ...f, parent, title: "Note", blocks });
+  expect(first.page).not.toBe(second.page);
+  expect(f.pages).toHaveLength(2);
+  for (const page of f.pages) {
+    expect(f.requests.filter((r) => r.id === page).map((r) => r.children.length)).toEqual([
+      50, 50, 1,
+    ]);
+  }
+  expect(JSON.stringify(f.requests)).not.toContain("toggle");
+  expect(f.states).toEqual([first, second]);
 });
-it("keeps old content and records staging when writing fails", async () => {
+it("does not replace the last successful link when publishing fails and includes the partial page URL", async () => {
   const f = fixture(true);
   await expect(
-    publish({
-      ...f,
-      parent: page,
-      title: "Note",
-      blocks: [{ type: "paragraph" }],
-      mapping: initial,
+    publish({ ...f, parent, title: "Note", blocks: [{ type: "paragraph" }] }),
+  ).rejects.toThrow("https://notion.so/");
+  expect(f.states).toEqual([]);
+  expect(f.pages).toHaveLength(1);
+});
+it("publishes empty notes as a fresh empty page", async () => {
+  const f = fixture();
+  const result = await publish({ ...f, parent, title: "Empty", blocks: [] });
+  expect(f.requests).toEqual([]);
+  expect(f.states).toEqual([result]);
+});
+it("loads older saved page links without retaining container state", () => {
+  expect(
+    mappingSchema.parse({
+      page: parent,
+      url: "https://notion.so/old",
+      active: parent,
+      staging: null,
+      retired: [],
     }),
-  ).rejects.toThrow("write failed");
-  expect(f.events).not.toContain(`archive:${old}`);
-  expect(f.states.at(-1)).toMatchObject({ active: old, staging: next });
+  ).toEqual({ page: parent, url: "https://notion.so/old" });
 });
-it("cleans interrupted staging before retry", async () => {
+it("writes nested children after their parents without a wrapper", async () => {
   const f = fixture();
   await publish({
     ...f,
-    parent: page,
-    title: "Note",
-    blocks: [],
-    mapping: { ...initial, staging: next },
-  });
-  expect(f.events[0]).toBe(`archive:${next}`);
-});
-
-it("writes nested children after their parents to respect Notion depth limits", async () => {
-  const requests: { id: string; children: unknown[] }[] = [];
-  const f = fixture();
-  const api: PublisherApi = {
-    ...f.api,
-    append: async (id, children) => {
-      requests.push({ id, children });
-      return children.map(() => ({ id: crypto.randomUUID() }));
-    },
-  };
-  await publish({
-    ...f,
-    api,
-    parent: page,
+    parent,
     title: "Nested",
-    mapping: initial,
     blocks: [
       {
         type: "bulleted_list_item",
@@ -117,7 +94,8 @@ it("writes nested children after their parents to respect Notion depth limits", 
       },
     ],
   });
-  expect(requests).toHaveLength(4);
-  for (const request of requests)
+  expect(f.requests).toHaveLength(3);
+  expect(f.requests[0]?.id).toBe(f.pages[0]);
+  for (const request of f.requests)
     expect(JSON.stringify(request.children)).not.toContain('"children"');
 });

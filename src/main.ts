@@ -115,13 +115,11 @@ export default class NotionPublisher extends Plugin {
         },
       );
       notice.setMessage("正在写入 Notion…");
-      const mapping = this.settings.notes[key];
       const result = await publish({
         api,
         parent,
         title: file.basename,
         blocks,
-        ...(mapping ? { mapping } : {}),
         save: async (value) => {
           this.settings.notes[key] = structuredClone(value);
           await this.save();
@@ -147,7 +145,7 @@ class PublisherSettings extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Notion Note Publisher" });
     containerEl.createEl("p", {
-      text: "发布当前笔记及本地图片。请将目标父页面连接到你的 Notion Integration。再次发布会替换插件管理的正文；请在 Obsidian 中编辑正文。",
+      text: "每次发布都会新建一张 Notion 子页面，正文和图片直接放在页面中。请将目标父页面连接到你的 Notion Integration。旧页面会保留。",
     });
     new Setting(containerEl)
       .setName("Integration Token")

@@ -55,15 +55,3 @@ it("retries 429 with Retry-After but never blindly retries ambiguous writes", as
   });
   await expect(failed.request("POST", "/pages", {})).rejects.toThrow("network");
 });
-
-it("cleans up using the 2026-03-11 in_trash field and skips already trashed blocks", async () => {
-  for (const inTrash of [false, true]) {
-    const methods: string[] = [];
-    const api = new Notion("token", async (request) => {
-      methods.push(request.method);
-      return { status: 200, headers: {}, body: { id, in_trash: inTrash } };
-    });
-    await api.archive(id);
-    expect(methods).toEqual(inTrash ? ["GET"] : ["GET", "DELETE"]);
-  }
-});

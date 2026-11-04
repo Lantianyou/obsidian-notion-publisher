@@ -43,7 +43,7 @@ async function walk(id) {
   return result;
 }
 const root = await children(mapping.page);
-const blocks = await walk(mapping.active);
+const blocks = await walk(mapping.page);
 const images = blocks.filter((block) => block.type === "image");
 assert.equal(images.length, 2, "Wiki and Markdown embeds must both become image blocks");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -76,48 +76,28 @@ for (const type of [
   );
 }
 assert.ok(!serialized.includes("notion-publisher-id"), "Frontmatter must not be published");
-assert.equal(mapping.staging, null);
-assert.deepEqual(mapping.retired, []);
+assert.ok(!root.some((block) => block.type === "toggle"), "Content must be directly on the page");
 await fs.mkdir(new URL("../.local-live/", import.meta.url), { recursive: true });
 const snapshotPath = new URL("../.local-live/first.json", import.meta.url);
 if (mode === "first") {
-  const sentinel = await api(`/blocks/${mapping.page}/children`, "PATCH", {
-    children: [
-      {
-        type: "paragraph",
-        paragraph: {
-          rich_text: [{ type: "text", text: { content: "保留测试：这段内容位于插件正文之外。" } }],
-        },
-      },
-    ],
-  });
   await fs.writeFile(
     snapshotPath,
-    JSON.stringify({
-      page: mapping.page,
-      active: mapping.active,
-      sentinel: sentinel.results[0].id,
-    }),
+    JSON.stringify({ page: mapping.page, rootIds: root.map((block) => block.id) }),
   );
 } else {
   const first = JSON.parse(await fs.readFile(snapshotPath, "utf8"));
-  assert.equal(mapping.page, first.page, "Second publish must update the same page");
-  assert.notEqual(mapping.active, first.active, "Second publish must commit a new generation");
+  assert.notEqual(mapping.page, first.page, "Every publish must create a new page");
   assert.equal(
-    (await api(`/blocks/${first.active}`)).in_trash,
-    true,
-    "Old generation must be archived",
+    (await api(`/pages/${first.page}`)).in_trash,
+    false,
+    "Previous page must remain available",
   );
-  assert.ok(
-    root.some((block) => block.id === first.sentinel),
-    "Content outside the managed container must survive",
+  assert.deepEqual(
+    (await children(first.page)).map((block) => block.id),
+    first.rootIds,
+    "Previous page must remain unchanged",
   );
-  assert.ok(serialized.includes("SECOND_PUBLISH_VERIFIED"), "Updated note text must be present");
-  assert.equal(
-    root.filter((block) => block.type === "toggle").length,
-    1,
-    "Only one managed generation should remain visible",
-  );
+  assert.ok(serialized.includes("SECOND_PUBLISH_VERIFIED"), "New note text must be present");
 }
 const report = {
   mode,
@@ -126,8 +106,7 @@ const report = {
   imageCount: images.length,
   imageBytesMatch: true,
   blockCount: blocks.length,
-  staging: mapping.staging,
-  cleanupComplete: true,
+  directPageContent: true,
 };
 await fs.writeFile(
   new URL(`../.local-live/${mode}-report.json`, import.meta.url),
