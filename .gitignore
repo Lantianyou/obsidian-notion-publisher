@@ -7,3 +7,8 @@ dist/
 coverage/
 
 .local-live/
+
+# Local Obsidian settings can contain Integration credentials.
+data.json
+.obsidian/
+*.gitbundle

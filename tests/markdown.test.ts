@@ -100,14 +100,14 @@ it("publishes image tables as labelled blocks, including escaped wiki width suff
 it("recognizes wiki image filenames before GFM email autolinks and emphasis", async () => {
   const resolved: string[] = [];
   const blocks = await convert(
-    "![[CleanShot 2026-11-03 at 09.47.53@2x.png]]\n\n![[image_a_b.png]]\n\n`![[code@2x.png]]`\n\n```md\n![[fenced@2x.png]]\n```",
+    "![[Screenshot with spaces@2x.png]]\n\n![[image_a_b.png]]\n\n`![[code@2x.png]]`\n\n```md\n![[fenced@2x.png]]\n```",
     async (link) => {
       resolved.push(link);
       return { ...image, path: link };
     },
     async () => id,
   );
-  expect(resolved).toEqual(["CleanShot 2026-11-03 at 09.47.53@2x.png", "image_a_b.png"]);
+  expect(resolved).toEqual(["Screenshot with spaces@2x.png", "image_a_b.png"]);
   expect(blocks.filter((block) => block.type === "image")).toHaveLength(2);
   expect(JSON.stringify(blocks)).toContain("![[code@2x.png]]");
   expect(JSON.stringify(blocks)).toContain("![[fenced@2x.png]]");
