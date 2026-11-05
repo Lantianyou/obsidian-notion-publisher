@@ -132,7 +132,11 @@ function render(tree: Root, uploads: Map<string, string>): Block[] {
     const output = nodes.flatMap((node): RichText[] => {
       switch (node.type) {
         case "text":
-          return text(node.value, annotations, url);
+          return text(
+            url === node.value ? node.value : node.value.replaceAll("->", "→"),
+            annotations,
+            url,
+          );
         case "inlineCode":
           return text(node.value, { ...annotations, code: true }, url);
         case "break":
@@ -162,7 +166,7 @@ function render(tree: Root, uploads: Map<string, string>): Block[] {
         case "imageReference":
           return text(node.alt ?? "", annotations);
         case "html":
-          return text(node.value, annotations);
+          return text(/^<br\s*\/?\s*>$/i.test(node.value) ? "\n" : node.value, annotations, url);
         case "footnoteReference":
           return text(`[^${node.identifier}]`, annotations);
         default: {
@@ -189,13 +193,14 @@ function render(tree: Root, uploads: Map<string, string>): Block[] {
       current = [];
     };
     for (const node of nodes) {
+      if (node.type === "text" && node.value === "") continue;
       if (node.type !== "image") {
         current.push(node);
         continue;
       }
       flush();
       const id = uploads.get(node.url);
-      const caption = text(node.alt ?? "");
+      const caption = text((node.alt ?? "").replaceAll("->", "→"));
       result.push({
         type: "image",
         image: id
@@ -217,8 +222,76 @@ function render(tree: Root, uploads: Map<string, string>): Block[] {
           return [richBlock("code", text(node.value), { language: language(node.lang ?? "") })];
         case "thematicBreak":
           return [{ type: "divider", divider: {} }];
-        case "blockquote":
-          return [richBlock("quote", [], { children: blocks(node.children) })];
+        case "blockquote": {
+          const first = node.children[0];
+          const marker = first?.type === "paragraph" ? first.children[0] : undefined;
+          const match =
+            marker?.type === "text" ? /^\[!([\w-]+)\][+-]?[ \t]*/.exec(marker.value) : null;
+          if (first?.type === "paragraph" && marker?.type === "text" && match) {
+            const kind = (match[1] ?? "note").toLowerCase();
+            const styles: Record<string, { emoji: string; color: string }> = {
+              warning: { emoji: "⚠️", color: "yellow_background" },
+              caution: { emoji: "⚠️", color: "yellow_background" },
+              danger: { emoji: "🚨", color: "red_background" },
+              error: { emoji: "🚨", color: "red_background" },
+              tip: { emoji: "💡", color: "green_background" },
+              success: { emoji: "✅", color: "green_background" },
+              question: { emoji: "❓", color: "yellow_background" },
+            };
+            const style = styles[kind] ?? { emoji: "📝", color: "blue_background" };
+            const content: PhrasingContent[] = [
+              { ...marker, value: marker.value.replace(/^\[![\w-]+\][+-]?[ \t]*/, "") },
+              ...first.children.slice(1),
+            ];
+            const title: PhrasingContent[] = [];
+            const body: PhrasingContent[] = [];
+            let inBody = false;
+            for (const part of content) {
+              if (!inBody && part.type === "text" && part.value.includes("\n")) {
+                const end = part.value.indexOf("\n");
+                title.push({ ...part, value: part.value.slice(0, end) });
+                body.push({ ...part, value: part.value.slice(end + 1) });
+                inBody = true;
+              } else if (!inBody && part.type === "break") {
+                inBody = true;
+              } else {
+                (inBody ? body : title).push(part);
+              }
+            }
+            const heading = inline(title.filter((part) => part.type !== "image"));
+            const children = [
+              ...paragraph(title.filter((part) => part.type === "image")),
+              ...paragraph(body),
+              ...blocks(node.children.slice(1)),
+            ];
+            return [
+              richBlock(
+                "callout",
+                heading.length ? heading : text(kind.charAt(0).toUpperCase() + kind.slice(1)),
+                {
+                  icon: { type: "emoji", emoji: style.emoji },
+                  color: style.color,
+                  ...(children.length ? { children } : {}),
+                },
+              ),
+            ];
+          }
+          const firstText =
+            first?.type === "paragraph"
+              ? first.children.findIndex((child) => child.type === "image")
+              : -1;
+          const rich_text =
+            first?.type === "paragraph"
+              ? inline(first.children.slice(0, firstText < 0 ? undefined : firstText))
+              : [];
+          const children = [
+            ...(first?.type === "paragraph" && firstText >= 0
+              ? paragraph(first.children.slice(firstText))
+              : []),
+            ...blocks(first?.type === "paragraph" ? node.children.slice(1) : node.children),
+          ];
+          return [richBlock("quote", rich_text, children.length ? { children } : {})];
+        }
         case "list":
           return node.children.map((item) => {
             const type =

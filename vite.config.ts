@@ -5,7 +5,10 @@ export default defineConfig({
     outDir: "dist",
     minify: false,
     sourcemap: true,
-    rollupOptions: { external: ["obsidian", "electron"], output: { exports: "default" } },
+    rollupOptions: {
+      external: ["obsidian", "electron"],
+      output: { exports: "default", codeSplitting: false },
+    },
   },
   test: { environment: "node", include: ["tests/**/*.test.ts"] },
 });

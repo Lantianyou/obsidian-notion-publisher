@@ -112,3 +112,96 @@ it("recognizes wiki image filenames before GFM email autolinks and emphasis", as
   expect(JSON.stringify(blocks)).toContain("![[code@2x.png]]");
   expect(JSON.stringify(blocks)).toContain("![[fenced@2x.png]]");
 });
+
+it("typesets prose arrows while preserving code and link targets", async () => {
+  const blocks = await convert(
+    "# A -> B\n\nA -> B **C -> D** [next -> step](https://example.org/a->b) `x->y`\n\n```cpp\nx->y\n```\n\n| Flow |\n| --- |\n| A -> B |",
+    async () => image,
+    async () => id,
+  );
+  expect(JSON.stringify(blocks[0])).toContain("A → B");
+  expect(JSON.stringify(blocks[1])).toContain("C → D");
+  expect(JSON.stringify(blocks[1])).toContain("next → step");
+  expect(JSON.stringify(blocks[1])).toContain("https://example.org/a->b");
+  expect(JSON.stringify(blocks[1])).toContain("x->y");
+  expect(JSON.stringify(blocks[2])).toContain("x->y");
+  expect(JSON.stringify(blocks[3])).toContain("A → B");
+});
+
+it("puts quote text in the quote itself and preserves remaining blocks", async () => {
+  const blocks = await convert(
+    "> **Quote** -> result\n>\n> Second paragraph\n>\n> - detail",
+    async () => image,
+    async () => id,
+  );
+  expect(blocks[0]).toMatchObject({
+    type: "quote",
+    quote: {
+      rich_text: [
+        { text: { content: "Quote" }, annotations: { bold: true } },
+        { text: { content: " → result" } },
+      ],
+      children: [{ type: "paragraph" }, { type: "bulleted_list_item" }],
+    },
+  });
+});
+
+it("maps Obsidian callouts to native callouts with formatted titles and body", async () => {
+  const blocks = await convert(
+    "> [!warning]- **Watch** -> next\n> Body<br>line\n>\n> - detail\n\n> [!note]\n> Only body",
+    async () => image,
+    async () => id,
+  );
+  expect(blocks[0]).toMatchObject({
+    type: "callout",
+    callout: {
+      icon: { type: "emoji", emoji: "⚠️" },
+      color: "yellow_background",
+      rich_text: [
+        { text: { content: "Watch" }, annotations: { bold: true } },
+        { text: { content: " → next" } },
+      ],
+      children: [
+        {
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              { text: { content: "Body" } },
+              { text: { content: "\n" } },
+              { text: { content: "line" } },
+            ],
+          },
+        },
+        { type: "bulleted_list_item" },
+      ],
+    },
+  });
+  expect(blocks[1]).toMatchObject({
+    type: "callout",
+    callout: { rich_text: [{ text: { content: "Note" } }], children: [{ type: "paragraph" }] },
+  });
+  expect(JSON.stringify(blocks)).not.toContain("[!warning]");
+});
+
+it("preserves autolinks, quote images, nested callouts and unknown callout titles", async () => {
+  const blocks = await convert(
+    "https://example.org/a->b\n\n> before ![pic](https://example.org/q.png) after\n\n> [!custom]\n> ![body](https://example.org/body.png)\n>\n> > [!tip] Nested",
+    async () => image,
+    async () => id,
+  );
+  expect(JSON.stringify(blocks[0])).toContain("https://example.org/a->b");
+  expect(blocks[1]).toMatchObject({
+    type: "quote",
+    quote: {
+      rich_text: [{ text: { content: "before " } }],
+      children: [{ type: "image" }, { type: "paragraph" }],
+    },
+  });
+  expect(blocks[2]).toMatchObject({
+    type: "callout",
+    callout: {
+      rich_text: [{ text: { content: "Custom" } }],
+      children: [{ type: "image" }, { type: "callout" }],
+    },
+  });
+});

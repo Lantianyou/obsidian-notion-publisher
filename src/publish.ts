@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Block, Notion } from "./notion";
+import { revision } from "./pull";
 
 export const mappingSchema = z.object({ page: z.string().uuid(), url: z.string().url() });
 export type Mapping = z.infer<typeof mappingSchema>;
@@ -16,8 +17,8 @@ export async function publish(args: {
   const page = await api.createPage(parent, title);
   const mapping = { page: page.id, url: page.url };
   try {
-    await appendTree(api, page.id, blocks);
     await save(mapping);
+    await appendTree(api, page.id, blocks);
     return mapping;
   } catch (error) {
     const message = error instanceof Error ? error.message : "请求失败";
@@ -27,7 +28,11 @@ export async function publish(args: {
 
 const blockSchema = z.object({ type: z.string() }).passthrough();
 
-async function appendTree(api: PublisherApi, parent: string, blocks: Block[]): Promise<void> {
+async function appendTree(
+  api: Pick<Notion, "append">,
+  parent: string,
+  blocks: Block[],
+): Promise<void> {
   for (let offset = 0; offset < blocks.length; offset += 50) {
     const batch = blocks.slice(offset, offset + 50).map((block) => {
       const payload = block[block.type];
@@ -57,4 +62,35 @@ async function appendTree(api: PublisherApi, parent: string, blocks: Block[]): P
         await appendTree(api, target.id, item.children.slice(item.skip));
     }
   }
+}
+
+export async function updatePage(args: {
+  api: Pick<Notion, "tree" | "append" | "archiveBlock">;
+  mapping: Mapping;
+  blocks: Block[];
+  expectedRevision: string;
+}): Promise<Mapping> {
+  const { api, mapping, blocks, expectedRevision } = args;
+  const previous = await api.tree(mapping.page);
+  if (revision(previous) !== expectedRevision)
+    throw new Error("Notion 在审阅后发生了变化，请重新拉取并审阅。");
+  try {
+    await appendTree(api, mapping.page, blocks);
+  } catch (error) {
+    throw new Error(
+      `写入未完成，旧正文已保留；页面可能包含部分新正文，请先检查页面再重试。${error instanceof Error ? error.message : ""}\n${mapping.url}`,
+    );
+  }
+  const current = await api.tree(mapping.page);
+  const previousIds = new Set(previous.map((block) => block.id));
+  if (revision(current.filter((block) => previousIds.has(block.id))) !== expectedRevision)
+    throw new Error(`写入期间 Notion 的旧正文发生变化，未移除旧正文。请检查页面：${mapping.url}`);
+  try {
+    for (const block of previous) await api.archiveBlock(block.id);
+  } catch (error) {
+    throw new Error(
+      `新正文已写入，但移除旧正文未完成，请先检查页面再重试。${error instanceof Error ? error.message : ""}\n${mapping.url}`,
+    );
+  }
+  return mapping;
 }

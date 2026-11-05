@@ -45,12 +45,13 @@ it("publishes directly into a fresh page every time, batching long documents", a
   expect(JSON.stringify(f.requests)).not.toContain("toggle");
   expect(f.states).toEqual([first, second]);
 });
-it("does not replace the last successful link when publishing fails and includes the partial page URL", async () => {
+it("retains the new page association on failure so a retry cannot create a second page", async () => {
   const f = fixture(true);
   await expect(
     publish({ ...f, parent, title: "Note", blocks: [{ type: "paragraph" }] }),
   ).rejects.toThrow("https://notion.so/");
-  expect(f.states).toEqual([]);
+  expect(f.states).toHaveLength(1);
+  expect(f.states[0]?.page).toBe(f.pages[0]);
   expect(f.pages).toHaveLength(1);
 });
 it("publishes empty notes as a fresh empty page", async () => {

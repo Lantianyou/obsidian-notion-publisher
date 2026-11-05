@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { remoteBlockSchema, type RemoteBlock } from "./pull";
 
 export type HttpRequest = {
   method: string;
@@ -74,6 +75,43 @@ export class Notion {
       return response.body;
     }
     throw new Error("Notion 请求次数超限，请稍后重试。");
+  }
+
+  async retrievePage(id: string) {
+    return pageSchema
+      .extend({ last_edited_time: z.string(), in_trash: z.boolean().optional() })
+      .parse(await this.request("GET", `/pages/${id}`));
+  }
+
+  async children(id: string) {
+    const result: z.infer<typeof remoteBlockSchema>[] = [];
+    let cursor: string | null = null;
+    do {
+      const list = listSchema
+        .extend({ results: z.array(remoteBlockSchema) })
+        .parse(
+          await this.request(
+            "GET",
+            `/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`,
+          ),
+        );
+      result.push(...list.results);
+      if (list.has_more && !list.next_cursor) throw new Error("Notion 分页缺少游标。");
+      cursor = list.has_more ? list.next_cursor : null;
+    } while (cursor);
+    return result;
+  }
+
+  async tree(id: string): Promise<RemoteBlock[]> {
+    const blocks: RemoteBlock[] = [];
+    for (const block of await this.children(id)) {
+      blocks.push({ ...block, children: block.has_children ? await this.tree(block.id) : [] });
+    }
+    return blocks;
+  }
+
+  async archiveBlock(id: string) {
+    await this.request("DELETE", `/blocks/${id}`);
   }
 
   async createPage(parent: string, title: string) {
